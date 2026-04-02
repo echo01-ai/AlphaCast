@@ -1,0 +1,66 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+myenv/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Build / distribution artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+*.egg
+pip-wheel-metadata/
+
+# Logs
+*.log
+logs/
+
+# Test & coverage artifacts
+.coverage
+.coverage.*
+.cache/
+.pytest_cache/
+htmlcov/
+pytestdebug.log
+
+# Type checker / linter caches
+.mypy_cache/
+.pytype/
+.pyright/
+.ruff_cache/
+.pylint.d/
+
+# IDE & editor settings
+.vscode/
+.idea/
+*.iml
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project-specific: experiment outputs
+outputs/
+
+# Project-specific: DeepLearningCheckpoints、foundation_models
+castagent/DeepLearningCheckpoints/
+castagent/foundation_models/
+
+# Python version managers
+.python-version

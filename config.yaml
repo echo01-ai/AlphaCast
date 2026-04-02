@@ -1,0 +1,22 @@
+output_dir: outputs
+use_features: True
+use_exogenous: True
+
+datasets:
+  - name: 
+    aliases: []
+    training_csv: 
+    test_csv: 
+    look_back: 
+    predicted_window:
+    sliding_window:
+    frequency: 
+    checkpoints:
+      Autoformer: 
+      DLinear: 
+      iTransformer: 
+      PatchTST: 
+      TimesNet: 
+    context_prompt_file: 
+
+  

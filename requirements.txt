@@ -1,0 +1,15 @@
+# Project dependencies for the time-series Agent framework
+pydantic-ai>=0.0.15
+pydantic>=2.8
+python-dotenv>=1.0
+pyyaml>=6.0.2
+pandas>=2.2
+numpy>=1.26
+scipy>=1.11
+statsmodels>=0.14
+prophet>=1.1.7
+statsforecast>=2.0.2
+tsfeatures>=0.4.5
+reformer_pytorch>=1.4.4
+torch>=2.5.1
+pyclustering>=0.10.1

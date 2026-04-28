@@ -3,20 +3,178 @@ use_features: True
 use_exogenous: True
 
 datasets:
-  - name: 
-    aliases: []
-    training_csv: 
-    test_csv: 
-    look_back: 
-    predicted_window:
-    sliding_window:
-    frequency: 
+  - name: BS
+    aliases: [bs]
+    training_csv: data/raw/BS/train.csv
+    test_csv: data/raw/BS/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: D
     checkpoints:
-      Autoformer: 
-      DLinear: 
-      iTransformer: 
-      PatchTST: 
-      TimesNet: 
-    context_prompt_file: 
+      Autoformer: checkpoints/BS/Autoformer.pth
+      DLinear: checkpoints/BS/DLinear.pth
+      iTransformer: checkpoints/BS/iTransformer.pth
+      PatchTST: checkpoints/BS/PatchTST.pth
+      TimesNet: checkpoints/BS/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/BS.txt
 
-  
+  - name: EPF_BE
+    aliases: [epf_be, be]
+    training_csv: data/raw/EPF_BE/train.csv
+    test_csv: data/raw/EPF_BE/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints:
+      Autoformer: checkpoints/EPF_BE/Autoformer.pth
+      DLinear: checkpoints/EPF_BE/DLinear.pth
+      iTransformer: checkpoints/EPF_BE/iTransformer.pth
+      PatchTST: checkpoints/EPF_BE/PatchTST.pth
+      TimesNet: checkpoints/EPF_BE/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/EPF_BE.txt
+
+  - name: EPF_DE
+    aliases: [epf_de, de]
+    training_csv: data/raw/EPF_DE/train.csv
+    test_csv: data/raw/EPF_DE/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints:
+      Autoformer: checkpoints/EPF_DE/Autoformer.pth
+      DLinear: checkpoints/EPF_DE/DLinear.pth
+      iTransformer: checkpoints/EPF_DE/iTransformer.pth
+      PatchTST: checkpoints/EPF_DE/PatchTST.pth
+      TimesNet: checkpoints/EPF_DE/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/EPF_DE.txt
+
+  - name: EPF_FR
+    aliases: [epf_fr, fr]
+    training_csv: data/raw/EPF_FR/train.csv
+    test_csv: data/raw/EPF_FR/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints:
+      Autoformer: checkpoints/EPF_FR/Autoformer.pth
+      DLinear: checkpoints/EPF_FR/DLinear.pth
+      iTransformer: checkpoints/EPF_FR/iTransformer.pth
+      PatchTST: checkpoints/EPF_FR/PatchTST.pth
+      TimesNet: checkpoints/EPF_FR/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/EPF_FR.txt
+
+  - name: EPF_NP
+    aliases: [epf_np, np]
+    training_csv: data/raw/EPF_NP/train.csv
+    test_csv: data/raw/EPF_NP/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints:
+      Autoformer: checkpoints/EPF_NP/Autoformer.pth
+      DLinear: checkpoints/EPF_NP/DLinear.pth
+      iTransformer: checkpoints/EPF_NP/iTransformer.pth
+      PatchTST: checkpoints/EPF_NP/PatchTST.pth
+      TimesNet: checkpoints/EPF_NP/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/EPF_NP.txt
+
+  - name: EPF_PJM
+    aliases: [epf_pjm, pjm]
+    training_csv: data/raw/EPF_PJM/train.csv
+    test_csv: data/raw/EPF_PJM/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints:
+      Autoformer: checkpoints/EPF_PJM/Autoformer.pth
+      DLinear: checkpoints/EPF_PJM/DLinear.pth
+      iTransformer: checkpoints/EPF_PJM/iTransformer.pth
+      PatchTST: checkpoints/EPF_PJM/PatchTST.pth
+      TimesNet: checkpoints/EPF_PJM/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/EPF_PJM.txt
+
+  - name: ETTh1
+    aliases: [etth1]
+    training_csv: data/raw/ETTh1/train.csv
+    test_csv: data/raw/ETTh1/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints:
+      Autoformer: checkpoints/ETTh1/Autoformer.pth
+      DLinear: checkpoints/ETTh1/DLinear.pth
+      iTransformer: checkpoints/ETTh1/iTransformer.pth
+      PatchTST: checkpoints/ETTh1/PatchTST.pth
+      TimesNet: checkpoints/ETTh1/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/ETTh1.txt
+
+  - name: ETTm1
+    aliases: [ettm1]
+    training_csv: data/raw/ETTm1/train.csv
+    test_csv: data/raw/ETTm1/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: 15min
+    checkpoints:
+      Autoformer: checkpoints/ETTm1/Autoformer.pth
+      DLinear: checkpoints/ETTm1/DLinear.pth
+      iTransformer: checkpoints/ETTm1/iTransformer.pth
+      PatchTST: checkpoints/ETTm1/PatchTST.pth
+      TimesNet: checkpoints/ETTm1/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/ETTm1.txt
+
+  - name: MOPEX
+    aliases: [mopex]
+    training_csv: data/raw/MOPEX/train.csv
+    test_csv: data/raw/MOPEX/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: D
+    checkpoints:
+      Autoformer: checkpoints/MOPEX/Autoformer.pth
+      DLinear: checkpoints/MOPEX/DLinear.pth
+      iTransformer: checkpoints/MOPEX/iTransformer.pth
+      PatchTST: checkpoints/MOPEX/PatchTST.pth
+      TimesNet: checkpoints/MOPEX/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/MOPEX.txt
+
+  - name: sunny_power
+    aliases: [sunny, sunny_power]
+    training_csv: data/raw/sunny_power/train.csv
+    test_csv: data/raw/sunny_power/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints:
+      Autoformer: checkpoints/sunny_power/Autoformer.pth
+      DLinear: checkpoints/sunny_power/DLinear.pth
+      iTransformer: checkpoints/sunny_power/iTransformer.pth
+      PatchTST: checkpoints/sunny_power/PatchTST.pth
+      TimesNet: checkpoints/sunny_power/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/sunny_power.txt
+
+  - name: windy_power
+    aliases: [windy, windy_power]
+    training_csv: data/raw/windy_power/train.csv
+    test_csv: data/raw/windy_power/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints:
+      Autoformer: checkpoints/windy_power/Autoformer.pth
+      DLinear: checkpoints/windy_power/DLinear.pth
+      iTransformer: checkpoints/windy_power/iTransformer.pth
+      PatchTST: checkpoints/windy_power/PatchTST.pth
+      TimesNet: checkpoints/windy_power/TimesNet.pth
+    context_prompt_file: prompts/contextual_briefings/windy_power.txt

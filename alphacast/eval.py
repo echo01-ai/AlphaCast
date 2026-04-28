@@ -7,7 +7,7 @@ import pandas as pd
 
 from .data_loader import TIME_COL, infer_target_column
 
-_PREDICTION_COLUMNS = ("predicted_ans", "prediction", "forecast", "value")
+_PREDICTION_COLUMNS = ("prediction", "predicted_ans", "forecast", "value")
 
 
 def mse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -29,6 +29,8 @@ def align_predictions(
     pred_df: pd.DataFrame,
     dataset_name: Optional[str] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
+    # 阅读提示：最终指标只在时间戳对齐后计算。这样即使确定性预测和
+    # 多段 LLM 输出使用不同预测列名，也可以共享同一个评估器。
     if TIME_COL not in test_df.columns:
         raise ValueError(f"Ground-truth frame must contain '{TIME_COL}'.")
     if "time_stamp" not in pred_df.columns:

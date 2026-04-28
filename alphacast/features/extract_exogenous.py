@@ -156,6 +156,8 @@ def extract_exogenous_features(
 
     Returns (features_by_var, correlations_by_var, top3_var_names_by_abs_corr, source_columns_by_var).
     """
+    # 阅读提示：外生变量通过列名模式发现，随后用和目标序列相同的特征提取器
+    # 做摘要，并按 Pearson 相关系数绝对值排序后放入 LLM 上下文。
     # Normalize column names (handle headers with leading spaces like EPF_NP)
     try:
         df = df.copy()

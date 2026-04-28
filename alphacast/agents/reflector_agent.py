@@ -29,7 +29,7 @@ _WINDOW_CLAIM_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _BASELINE_CLAIM_PATTERN = re.compile(
-    r"\b(?:baseline|reference)\b[^\d\-]{0,16}(-?\d+(?:\.\d+)?)",
+    r"\b(?:baseline|reference)\b[^\n]{0,32}\b(?:mean|avg|average|last|final|value|level)\b[^\d\-]{0,16}(-?\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 
@@ -148,6 +148,14 @@ def _looks_like_date_fragment(text: str, start: int, end: int) -> bool:
     # Detect YYYY-MM-DD style sequences
     date_slice = text[start : min(len(text), start + 10)]
     if re.match(r"\d{4}-\d{2}-\d{2}", date_slice):
+        return True
+    nearby = text[max(0, start - 12) : min(len(text), end + 12)].lower()
+    if re.search(
+        r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|"
+        r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+        r"mon|tue|wed|thu|fri|sat|sun)\b",
+        nearby,
+    ):
         return True
     return False
 
@@ -332,6 +340,8 @@ def create_reflector_agent(
     assess_forecast: Callable[[List[float], int, Dict[str, Any], str], Dict[str, Any]],
     json_default: Callable[[Any], Any],
 ) -> Agent:
+    # 阅读提示：ReflectorAgent 是确定性的 FunctionModel。它检查契约层面的有效性
+    # 和数值依据，而不是再让第二个 LLM 做自由形式判断。
     instructions = get_agent_instructions("ReflectorAgent", REFLECTOR_AGENT_PROMPT_FALLBACK)
 
     def _extract_json_request(messages: list[Any]) -> dict[str, Any]:
@@ -347,6 +357,8 @@ def create_reflector_agent(
         return {}
 
     def _reflector_model(messages, agent_info) -> ModelResponse:
+        # Generator 会发送 JSON payload；Reflector 返回严格 JSON，
+        # 这样 emit_predictions 可以拒绝无效或缺少依据的预测。
         payload = _extract_json_request(messages)
         raw_predictions = payload.get("predictions") or []
         predictions: List[float] = []
@@ -408,9 +420,7 @@ def create_reflector_agent(
             )
 
         if detected_issues:
-            issues = report.setdefault("issues", [])
-            issues.extend(detected_issues)
-            report["approved"] = False
+            diagnostics["numeric_audit_warnings"] = detected_issues
 
         summary_note = analysis.get("summary")
         if summary_note:

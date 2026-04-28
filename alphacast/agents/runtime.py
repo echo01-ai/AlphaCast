@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
-from castmind.config import DatasetConfig, ExperimentConfig
+from alphacast.config import DatasetConfig, ExperimentConfig
 from .common import (
     assess_forecast,
     deterministic_run_for_dataset,
@@ -61,6 +61,8 @@ def build_agent_or_none(
     cfg: ExperimentConfig | None = None,
     dataset_briefings: Optional[Dict[str, str]] = None,
 ):
+    # 阅读提示：这里是 pydantic-ai 的组装点。模型配置可用时返回
+    # GeneratorAgent，否则 run_experiment.py 会回退到确定性预测。
     load_dotenv(override=False)
 
     model_name = os.getenv("PYA_MODEL")
@@ -80,7 +82,8 @@ def build_agent_or_none(
         briefing_lookup: Dict[str, str] = dataset_briefings or {}
         dataset_lookup: Dict[str, DatasetConfig] = {d.name: d for d in cfg.datasets} if cfg else {}
 
-        # Build Investigator and Reflector agents (used internally by the generator toolchain)
+        # Investigator 和 Reflector 是函数驱动的辅助 Agent；真正返回给
+        # 主流程、面向 LLM 的活跃 Agent 是 Generator。
         _ = create_investigator_agent(
             cfg,
             dataset_lookup,

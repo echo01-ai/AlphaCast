@@ -1,0 +1,81 @@
+output_dir: outputs
+use_features: True
+use_exogenous: True
+
+datasets:
+  - name: EPF_BE
+    aliases: [epf_be, be]
+    training_csv: data/raw/EPF_BE/train.csv
+    test_csv: data/raw/EPF_BE/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints: {}
+    context_prompt_file: prompts/contextual_briefings/EPF_BE.txt
+
+  - name: EPF_DE
+    aliases: [epf_de, de]
+    training_csv: data/raw/EPF_DE/train.csv
+    test_csv: data/raw/EPF_DE/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints: {}
+    context_prompt_file: prompts/contextual_briefings/EPF_DE.txt
+
+  - name: EPF_FR
+    aliases: [epf_fr, fr]
+    training_csv: data/raw/EPF_FR/train.csv
+    test_csv: data/raw/EPF_FR/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints: {}
+    context_prompt_file: prompts/contextual_briefings/EPF_FR.txt
+
+  - name: EPF_NP
+    aliases: [epf_np, np]
+    training_csv: data/raw/EPF_NP/train.csv
+    test_csv: data/raw/EPF_NP/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints: {}
+    context_prompt_file: prompts/contextual_briefings/EPF_NP.txt
+
+  - name: EPF_PJM
+    aliases: [epf_pjm, pjm]
+    training_csv: data/raw/EPF_PJM/train.csv
+    test_csv: data/raw/EPF_PJM/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints: {}
+    context_prompt_file: prompts/contextual_briefings/EPF_PJM.txt
+
+  - name: ETTh1
+    aliases: [etth1]
+    training_csv: data/raw/ETTh1/train.csv
+    test_csv: data/raw/ETTh1/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: H
+    checkpoints: {}
+    context_prompt_file: prompts/contextual_briefings/ETTh1.txt
+
+  - name: ETTm1
+    aliases: [ettm1]
+    training_csv: data/raw/ETTm1/train.csv
+    test_csv: data/raw/ETTm1/test.csv
+    look_back: 96
+    predicted_window: 96
+    sliding_window: 96
+    frequency: 15min
+    checkpoints: {}
+    context_prompt_file: prompts/contextual_briefings/ETTm1.txt

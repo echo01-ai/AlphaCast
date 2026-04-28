@@ -8,23 +8,23 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from castmind.config import DatasetConfig, ExperimentConfig
-from castmind.data_loader import TIME_COL, infer_target_column
-from castmind.eval import align_predictions, mae, mse, smape
-from castmind.features import extract_target_features, extract_exogenous_features
-from castmind.features.extract_exogenous import (
+from alphacast.config import DatasetConfig, ExperimentConfig
+from alphacast.data_loader import TIME_COL, infer_target_column
+from alphacast.eval import align_predictions, mae, mse, smape
+from alphacast.features import extract_target_features, extract_exogenous_features
+from alphacast.features.extract_exogenous import (
     EXOGENOUS_BASES,
     EXOGENOUS_DESCRIPTIONS,
     _find_station_columns,
 )
-from castmind.tools.analysis import (
+from alphacast.tools.analysis import (
     analyze_training,
     choose_cluster_by_similarity,
     choose_model_by_similarity,
     choose_neighbor_by_similarity,
 )
-from castmind.tools.forecast import forecast_with_model, save_predictions_csv
-from castmind.utils.time import (
+from alphacast.tools.forecast import forecast_with_model, save_predictions_csv
+from alphacast.utils.time import (
     CaseEntry,
     CaseNeighbor,
     ClusterEntry,
@@ -58,6 +58,8 @@ def prepare_investor_packet(
 ) -> dict:
     """Generate the InvestigatorAgent research packet for a dataset window."""
 
+    # 阅读提示：这里是已保存实验产物到 LLM 的主桥梁。它会把 memory、案例检索、
+    # 基线预测、目标特征、外生变量切片和数据集说明整理成一个结构化 packet。
     dataset_name = ds_cfg.name
     ds_out_dir = os.path.join(cfg.output_dir, dataset_name) if cfg else os.path.join("outputs", dataset_name)
 
@@ -128,6 +130,7 @@ def prepare_investor_packet(
 
     config_sel_model = getattr(cfg, "sel_model", None) if cfg else None
     if config_sel_model:
+        # 配置中显式指定的模型会被视为优先级最高的基线来源。
         try:
             configured_model = config_sel_model
             pred = forecast_with_model(
@@ -143,6 +146,8 @@ def prepare_investor_packet(
             pass
 
     if reference_prediction is None and cluster_base_raw:
+        # 如果训练分析找到了相似窗口簇，并且模型投票支持足够，
+        # 优先使用按簇加权的基线预测。
         try:
             clusters = [
                 ClusterEntry(
@@ -177,6 +182,8 @@ def prepare_investor_packet(
             pass
 
     if not reference_prediction:
+        # 兜底基线选择：先检索最相似的历史案例，再尝试案例建议模型
+        # 和 memory 中排序靠前的备选模型。
         if case_base_raw:
             try:
                 cases = [
@@ -516,6 +523,10 @@ def deterministic_run_for_dataset(cfg: ExperimentConfig, ds) -> dict:
     data[TIME_COL] = pd.to_datetime(data[TIME_COL])
     data = data.sort_values(TIME_COL).reset_index(drop=True)
 
+    test_df = pd.read_csv(ds.test_csv)
+    test_df[TIME_COL] = pd.to_datetime(test_df[TIME_COL])
+    test_df = test_df.sort_values(TIME_COL).reset_index(drop=True)
+
     _ = analyze_training(
         data,
         ds.look_back,
@@ -534,8 +545,17 @@ def deterministic_run_for_dataset(cfg: ExperimentConfig, ds) -> dict:
 
     target_col = infer_target_column(data, ds.name)
     y = data[target_col].to_numpy(dtype=float)
-    current_window = y[-ds.look_back :]
-    current_ts_window = data[TIME_COL].iloc[-ds.look_back:]
+    test_target_col = infer_target_column(test_df, ds.name)
+    if len(test_df) >= ds.look_back + ds.predicted_window:
+        # 对齐 LLM 路径：test.csv 的前 look_back 行作为上下文，
+        # 从第 look_back 行开始预测，这样时间戳能和测试真值对齐。
+        current_window = test_df[test_target_col].iloc[: ds.look_back].to_numpy(dtype=float)
+        current_ts_window = test_df[TIME_COL].iloc[: ds.look_back]
+        prediction_start_ts = pd.Timestamp(test_df[TIME_COL].iloc[ds.look_back])
+    else:
+        current_window = y[-ds.look_back :]
+        current_ts_window = data[TIME_COL].iloc[-ds.look_back:]
+        prediction_start_ts = None
 
     with open(case_base_path, "r", encoding="utf-8") as f:
         raw_cases = json.load(f)
@@ -628,7 +648,6 @@ def deterministic_run_for_dataset(cfg: ExperimentConfig, ds) -> dict:
         timestamps=current_ts_window
     )
 
-    last_ts = data[TIME_COL].iloc[-1]
     out_csv = os.path.join(ds_out_dir, "predictions.csv")
     _mem_freq = memory.get("frequency")
     if isinstance(_mem_freq, str):
@@ -637,11 +656,14 @@ def deterministic_run_for_dataset(cfg: ExperimentConfig, ds) -> dict:
             _mem_freq = _mem_freq_clean.upper()
         else:
             _mem_freq = _mem_freq_clean
-    timestamps = generate_future_timestamps(pd.Timestamp(last_ts), ds.predicted_window, _mem_freq)
+    if prediction_start_ts is not None and _mem_freq:
+        offset = pd.tseries.frequencies.to_offset(_mem_freq)
+        timestamps = [prediction_start_ts + offset * i for i in range(ds.predicted_window)]
+    else:
+        last_ts = current_ts_window.iloc[-1]
+        timestamps = generate_future_timestamps(pd.Timestamp(last_ts), ds.predicted_window, _mem_freq)
     save_predictions_csv(out_csv, timestamps, preds)
 
-    test_df = pd.read_csv(ds.test_csv)
-    test_df[TIME_COL] = pd.to_datetime(test_df[TIME_COL])
     pred_df = pd.read_csv(out_csv)
     pred_df["time_stamp"] = pd.to_datetime(pred_df["time_stamp"])
     y_true, y_pred = align_predictions(test_df, pred_df, ds.name)

@@ -155,6 +155,8 @@ def extract_target_features(y: np.ndarray, pandas_freq: Optional[str] = None) ->
 
     Returns a flat dict of feature_name -> value.
     """
+    # 阅读提示：这些特征在这里不是训练输入，而是暴露给 LLM 的证据，
+    # 同时会持久化用于后续报告特征使用情况。
     y = np.asarray(y, dtype=float)
     out: Dict[str, float] = {}
 
@@ -186,4 +188,3 @@ def extract_target_features(y: np.ndarray, pandas_freq: Optional[str] = None) ->
         except Exception:
             pass
     return clean_out
-

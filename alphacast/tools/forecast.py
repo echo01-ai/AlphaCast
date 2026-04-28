@@ -14,7 +14,7 @@ from ..models.base import (
     get_default_models,
 )
 if TYPE_CHECKING:
-    from castmind.config import DatasetConfig
+    from alphacast.config import DatasetConfig
 from ..utils.time import generate_future_timestamps
 
 

@@ -58,9 +58,20 @@ Thumbs.db
 # Project-specific: experiment outputs
 outputs/
 
+# Project-specific: public data downloads and prepared CSVs
+downloads/
+data/raw/*/*.csv
+
+# Local Codex scratch file
+.codex
+
 # Project-specific: DeepLearningCheckpoints、foundation_models
 castagent/DeepLearningCheckpoints/
 castagent/foundation_models/
+checkpoints/**/*
+!checkpoints/README.md
+castmind/foundation_models/**/*
+!castmind/foundation_models/README.md
 
 # Python version managers
 .python-version

@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 from pydantic_ai import Agent, RunContext  # type: ignore
 
-from castmind.config import DatasetConfig, ExperimentConfig
-from castmind.data_loader import TIME_COL
+from alphacast.config import DatasetConfig, ExperimentConfig
+from alphacast.data_loader import TIME_COL
 from .prompts import get_agent_instructions
 
 
@@ -39,8 +39,10 @@ def create_generator_agent(
     reflector_agent: Agent,
     deterministic_run_for_dataset: Callable[[ExperimentConfig, Any], dict],
 ) -> Agent:
+    # 阅读提示：GeneratorAgent 是面向 LLM 的编排器。它暴露的工具刻意保持窄协议：
+    # 读取上下文、记录证据、输出预测，然后交给 Reflector 批准或拒绝。
     instructions = get_agent_instructions("GeneratorAgent", GENERATOR_AGENT_PROMPT_FALLBACK)
-    generator_agent = Agent(model_name, instructions=instructions)
+    generator_agent = Agent(model_name, instructions=instructions, retries=3)
     globals()["RunContext"] = RunContext
 
     investigator_cache: dict[tuple[str, int], dict[str, Any]] = {}
@@ -63,6 +65,67 @@ def create_generator_agent(
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         return path
 
+    def _read_chain_log(dataset_name: str, window_offset: int) -> str:
+        path = os.path.join(_dataset_out_dir(dataset_name), "chain_of_thought.log")
+        if not os.path.exists(path):
+            return ""
+        latest = ""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                    except Exception:
+                        continue
+                    try:
+                        entry_offset = int(entry.get("window_offset", -1))
+                    except Exception:
+                        continue
+                    if entry_offset == int(window_offset):
+                        latest = str(entry.get("content") or "")
+        except Exception:
+            return ""
+        return latest.strip()
+
+    def _fallback_chain_summary(investor_packet: dict[str, Any]) -> str:
+        reference = investor_packet.get("reference_prediction")
+        ref_note = ""
+        if isinstance(reference, list) and reference:
+            try:
+                clean = [float(v) for v in reference if np.isfinite(float(v))]
+                if clean:
+                    ref_note = (
+                        f"Reference prediction length {len(clean)}; "
+                        f"first={clean[0]:.6g}, last={clean[-1]:.6g}, "
+                        f"mean={float(np.mean(clean)):.6g}."
+                    )
+            except Exception:
+                ref_note = "Reference prediction was available and used as the forecast anchor."
+        exo_note = ""
+        top_vars = investor_packet.get("exogenous_top3") or investor_packet.get("top_exogenous_vars")
+        if isinstance(top_vars, list) and top_vars:
+            exo_note = f" Exogenous variables considered: {', '.join(str(v) for v in top_vars[:3])}."
+        return (
+            "Tool-side fallback summary: Generator emitted predictions after consulting the investor packet. "
+            + (ref_note or "Reference prediction and available context were used as guidance.")
+            + exo_note
+        )
+
+    def _append_failure_log(dataset_name: str, window_offset: int, stage: str, error: str, payload: Optional[dict] = None) -> None:
+        ds_out_dir = _dataset_out_dir(dataset_name)
+        os.makedirs(ds_out_dir, exist_ok=True)
+        path = os.path.join(ds_out_dir, "llm_failures.jsonl")
+        entry = {
+            "window_offset": int(window_offset),
+            "timestamp": pd.Timestamp.utcnow().isoformat(),
+            "stage": stage,
+            "error": error,
+        }
+        if payload is not None:
+            entry["payload"] = payload
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False, default=json_default) + "\n")
+
     @generator_agent.tool
     def consult(
         ctx: RunContext[None],
@@ -70,6 +133,7 @@ def create_generator_agent(
         window_offset: int = 0,
         forecast_horizon: Optional[int] = None,
     ) -> dict:
+        # 工具 1：为当前请求窗口生成 Investigator packet。
         ds_cfg = dataset_lookup.get(dataset_name)
         if ds_cfg is None:
             raise ValueError(f"Unknown dataset '{dataset_name}'")
@@ -107,31 +171,111 @@ def create_generator_agent(
         chain_cache[(dataset_name, window_offset_int)] = summary
         return {"logged": True, "path": path}
 
-    @generator_agent.tool
+    @generator_agent.tool(retries=3)
     def emit_predictions(
         ctx: RunContext[None],
-        predictions: List[float],
-        training_csv: str,
-        predicted_window: int,
-        output_dir: str,
-        dataset_name: str,
-        window_offset: Optional[int] = None,
-        frequency: Optional[str] = None,
-        start_timestamp: Optional[str] = None,
-        selected_features: Optional[List[str]] = None,
-        feature_weights: Optional[dict] = None,
-        exogenous_vars: Optional[List[str]] = None,
-        exogenous_feature_selection: Optional[dict] = None,
-        exogenous_correlations: Optional[dict] = None,
+        predictions: Any = None,
+        training_csv: Any = None,
+        predicted_window: Any = None,
+        output_dir: Any = None,
+        dataset_name: Any = None,
+        window_offset: Any = None,
+        frequency: Any = None,
+        start_timestamp: Any = None,
+        selected_features: Any = None,
+        feature_weights: Any = None,
+        exogenous_vars: Any = None,
+        exogenous_feature_selection: Any = None,
+        exogenous_correlations: Any = None,
     ) -> dict:
-        H = int(predicted_window)
+        # 工具 3：校验、补时间戳、持久化并标注一段预测。
+        if not dataset_name and len(dataset_lookup) == 1:
+            dataset_name = next(iter(dataset_lookup.keys()))
+        dataset_name = str(dataset_name) if dataset_name is not None else ""
+        ds_cfg = dataset_lookup.get(dataset_name)
+        if ds_cfg is None:
+            raise ValueError(
+                f"dataset_name is required for emit_predictions; known datasets={list(dataset_lookup.keys())}"
+            )
+
         try:
             window_offset_int = int(window_offset or 0)
         except Exception:
             window_offset_int = 0
+        investor_packet = investigator_cache.get((dataset_name, window_offset_int)) or {}
+
+        if predicted_window is None:
+            predicted_window = (
+                investor_packet.get("forecast_horizon_hint")
+                or investor_packet.get("predicted_window")
+                or ds_cfg.predicted_window
+            )
+        H = int(predicted_window)
+
+        if not training_csv:
+            training_csv = ds_cfg.training_csv
+        else:
+            training_csv = str(training_csv)
+
+        if not output_dir:
+            output_dir = cfg.output_dir if cfg else "outputs"
+        else:
+            output_dir = str(output_dir)
+
+        if frequency is None:
+            frequency = investor_packet.get("frequency")
+        if start_timestamp is None:
+            start_timestamp = investor_packet.get("prediction_start_timestamp")
+
+        def _coerce_prediction_list(raw: Any) -> List[float]:
+            if raw is None:
+                return []
+            if isinstance(raw, dict):
+                for key in ("predictions", "values", "forecast", "prediction"):
+                    if key in raw:
+                        raw = raw[key]
+                        break
+            if isinstance(raw, str):
+                text = raw.strip()
+                try:
+                    parsed = json.loads(text)
+                    return _coerce_prediction_list(parsed)
+                except Exception:
+                    import re
+
+                    raw = re.findall(r"-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", text)
+            if hasattr(raw, "tolist") and not isinstance(raw, (str, bytes, bytearray)):
+                raw = raw.tolist()
+            if not isinstance(raw, (list, tuple)):
+                raise ValueError("predictions must be a list, JSON list, or numeric string")
+            values: List[float] = []
+            for item in raw:
+                if isinstance(item, dict):
+                    for key in ("value", "prediction", "predicted_ans", "forecast"):
+                        if key in item:
+                            item = item[key]
+                            break
+                try:
+                    values.append(float(item))
+                except Exception:
+                    continue
+            return values
+
+        predictions = _coerce_prediction_list(predictions)
         n = len(predictions)
         if n == 0:
-            raise ValueError("predictions must be a non-empty list of floats")
+            reference = investor_packet.get("reference_prediction")
+            if isinstance(reference, list) and reference:
+                predictions = _coerce_prediction_list(reference)
+                _append_failure_log(
+                    dataset_name,
+                    window_offset_int,
+                    "prediction_fallback",
+                    "LLM emitted no parseable predictions; used reference_prediction as fallback.",
+                )
+                n = len(predictions)
+            else:
+                raise ValueError("predictions must be a non-empty list of floats")
         if n != H:
             print(f"[warn] Normalizing LLM predictions length from {n} to {H} by {'trimming' if n>H else 'padding'}")
             if n > H:
@@ -143,7 +287,6 @@ def create_generator_agent(
         if not np.all(np.isfinite(arr)):
             raise ValueError("predictions must be finite numbers")
 
-        ds_cfg = dataset_lookup.get(dataset_name)
         investor_packet = investigator_cache.get((dataset_name, window_offset_int))
         if investor_packet is None and ds_cfg is not None:
             try:
@@ -160,6 +303,14 @@ def create_generator_agent(
             investor_packet = {}
 
         chain_text = chain_cache.get((dataset_name, window_offset_int), "")
+        if not chain_text:
+            chain_text = _read_chain_log(dataset_name, window_offset_int)
+            if chain_text:
+                chain_cache[(dataset_name, window_offset_int)] = chain_text
+        if not chain_text:
+            chain_text = _fallback_chain_summary(investor_packet)
+            _append_chain_log(dataset_name, window_offset_int, chain_text)
+            chain_cache[(dataset_name, window_offset_int)] = chain_text
         reflection_request = {
             "dataset_name": dataset_name,
             "window_offset": window_offset_int,
@@ -172,11 +323,19 @@ def create_generator_agent(
         try:
             reflection = json.loads(reflection_result.output)
         except Exception as exc:
+            _append_failure_log(dataset_name, window_offset_int, "reflector_parse", str(exc))
             raise RuntimeError(f"ReflectorAgent returned invalid payload: {exc}") from exc
         if not reflection.get("approved", False):
             issues = reflection.get("issues") or []
             notes = reflection.get("notes") or ""
             joined = ", ".join(str(item) for item in issues)
+            _append_failure_log(
+                dataset_name,
+                window_offset_int,
+                "reflector_rejected",
+                f"{joined} {notes}",
+                reflection,
+            )
             raise RuntimeError(f"ReflectorAgent rejected forecast: {joined} {notes}")
         try:
             with open(os.path.join(_dataset_out_dir(dataset_name), "reflector_report.jsonl"), "a", encoding="utf-8") as f:

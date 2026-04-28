@@ -52,7 +52,7 @@ def evaluate_models_on_window(
     ts_fut: pd.Series,
     season_length: Optional[int],
 ) -> Tuple[str, float]:
-    best_name, best_err = "SeasonalNaive", float("inf")
+    best_name, best_err = None, float("inf")
     for m in models:
         try:
             # Pass only historical timestamps so deep models can build x_mark_enc
@@ -62,8 +62,9 @@ def evaluate_models_on_window(
             if err < best_err:
                 best_err, best_name = err, m.alias
         except Exception as e:
-            raise ValueError(f"Error fitting model {m.alias} : {e}")
             continue
+    if best_name is None:
+        raise ValueError("No candidate forecasting model succeeded on this window.")
     return best_name, best_err
 
 # The caller always provides train_df with unchanged parameters; timestamps are now handled internally.
@@ -78,6 +79,8 @@ def analyze_training(
     num_clusters: Optional[int] = 6,
     dataset_cfg: Optional[DatasetConfig] = None,
 ) -> AnalyzeResult:
+    # 阅读提示：这是离线案例库构建器。它把训练序列切成 look-back/future
+    # 窗口，为每个窗口标注历史上表现最好的模型，然后写出供后续检索。
     target_col = infer_target_column(train_df, dataset_name)
     y = train_df[target_col].to_numpy(dtype=float)
     ts_all = pd.to_datetime(train_df[TIME_COL])
@@ -112,6 +115,8 @@ def analyze_training(
     
     for x, fut, ts_x, ts_fut in sliding_windows(y, ts_all, L, H, step=stride):
         if len(x) < L or len(fut) < H: continue
+        # 每个历史切片都会变成一个有监督的小基准：当前 look-back 窗口 ->
+        # 已知 future 窗口 -> 最优模型标签。
         best_model, _ = evaluate_models_on_window(models, x, fut, ts_x, ts_fut, season_length=memory["periodicity_lag"])
         cases.append(CaseEntry(window=zscore(x).tolist(), best_model=best_model))
         cases_stats.setdefault(best_model, 0)

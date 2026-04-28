@@ -1371,7 +1371,6 @@ class ZeroModel(ForecastModel):
         return np.asarray(fcst_df[self.alias], dtype=float)
 
 #####foundation_model###################
-from transformers import AutoModelForCausalLM, AutoTokenizer
 # @dataclass
 # class TimesFMModel:
     
@@ -1745,6 +1744,8 @@ class SundialModel:
         """
         import os
         try:
+            from transformers import AutoModelForCausalLM
+
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
             # Define model path or Hugging Face repository
@@ -1799,19 +1800,13 @@ class SundialModel:
         return pred_tokens.detach().cpu().numpy()
     
 def get_default_models() -> List[ForecastModel]:
-    # Maintain three basic models: SeasonalNaive, HistoricAverage, and AutoARIMA
+    # 阅读提示：这个注册表定义训练分析和基线生成使用的候选模型池。
+    # 当前默认只保留无需本地 checkpoint 的轻量统计模型，避免在未准备
+    # Autoformer/DLinear/PatchTST/TimesNet/iTransformer/Sundial 权重时反复失败。
     return [
         SeasonalNaiveModel(),
         HistoricAverageModel(),
         ArimaModel(),
-        #TimesFMModel(),
-        #ChronosModel(),
-        SundialModel(),
-        AutoformerModel(),
-        DLinearModel(),
-        PatchTSTModel(),
-        TimesNetModel(),
-        iTransformerModel(),
         ProphetModel(),
         HoltWintersModel(),
         ThetaModel(),

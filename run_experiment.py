@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -38,7 +39,131 @@ def _load_dataset_brief(path: Optional[str]) -> str:
     return text.strip()
 
 
+def _append_llm_failure(ds_out_dir: str, window_offset: int, step_index: int, stage: str, exc: Exception) -> None:
+    try:
+        os.makedirs(ds_out_dir, exist_ok=True)
+        path = os.path.join(ds_out_dir, "llm_failures.jsonl")
+        entry = {
+            "window_offset": int(window_offset),
+            "step_index": int(step_index),
+            "timestamp": pd.Timestamp.utcnow().isoformat(),
+            "stage": stage,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _resume_position_from_coverage(coverage: int, horizon: int, stride: int, total_needed: int) -> tuple[int, int]:
+    coverage = max(0, min(int(coverage), int(total_needed)))
+    horizon = max(1, int(horizon))
+    stride = max(1, int(stride))
+    if coverage <= 0:
+        return 0, 0
+    if coverage < horizon and coverage < total_needed:
+        return 0, 0
+    completed_steps = 1 + int(math.ceil(max(0, coverage - horizon) / stride))
+    return completed_steps * stride, completed_steps
+
+
+def _clean_llm_predictions_for_resume(
+    out_csv: str,
+    target_df: pd.DataFrame,
+    total_needed: int,
+) -> tuple[int, bool]:
+    if not os.path.exists(out_csv):
+        return 0, False
+
+    try:
+        pred_df = pd.read_csv(out_csv)
+    except Exception:
+        os.remove(out_csv)
+        return 0, True
+
+    original_len = len(pred_df)
+    if (
+        original_len == 0
+        or "time_stamp" not in pred_df.columns
+        or "prediction" not in pred_df.columns
+        or TIME_COL not in target_df.columns
+    ):
+        os.remove(out_csv)
+        return 0, True
+
+    cleaned = pred_df.copy()
+    cleaned["time_stamp"] = pd.to_datetime(cleaned["time_stamp"], errors="coerce")
+    cleaned["prediction"] = pd.to_numeric(cleaned["prediction"], errors="coerce")
+    cleaned = cleaned.dropna(subset=["time_stamp", "prediction"])
+    cleaned = cleaned[np.isfinite(cleaned["prediction"].to_numpy(dtype=float))]
+
+    expected_ts = pd.to_datetime(target_df[TIME_COL].iloc[:total_needed]).reset_index(drop=True)
+    expected_index = {ts: idx for idx, ts in enumerate(expected_ts)}
+    cleaned = cleaned[cleaned["time_stamp"].isin(expected_index)]
+
+    if cleaned.empty:
+        os.remove(out_csv)
+        return 0, True
+
+    if "emission_index" in cleaned.columns:
+        order_values = pd.to_numeric(cleaned["emission_index"], errors="coerce")
+        cleaned = cleaned.assign(_order=order_values).sort_values("_order", kind="mergesort")
+    elif {"window_offset", "horizon_index"}.issubset(cleaned.columns):
+        window_vals = pd.to_numeric(cleaned["window_offset"], errors="coerce")
+        horizon_vals = pd.to_numeric(cleaned["horizon_index"], errors="coerce")
+        cleaned = cleaned.assign(
+            _order=window_vals.fillna(0) * 1_000_000 + horizon_vals.fillna(0)
+        ).sort_values("_order", kind="mergesort")
+    else:
+        cleaned = cleaned.sort_values("time_stamp", kind="mergesort")
+    if "_order" in cleaned.columns:
+        cleaned = cleaned.drop(columns="_order")
+
+    cleaned = cleaned.drop_duplicates(subset=["time_stamp"], keep="last")
+
+    available_ts = set(cleaned["time_stamp"])
+    contiguous_count = 0
+    for ts in expected_ts:
+        if ts not in available_ts:
+            break
+        contiguous_count += 1
+
+    if contiguous_count <= 0:
+        os.remove(out_csv)
+        return 0, True
+
+    keep_order = {ts: idx for idx, ts in enumerate(expected_ts.iloc[:contiguous_count])}
+    cleaned = cleaned[cleaned["time_stamp"].isin(keep_order)]
+    cleaned = cleaned.assign(_target_order=cleaned["time_stamp"].map(keep_order))
+    cleaned = cleaned.sort_values("_target_order", kind="mergesort").drop(columns="_target_order")
+
+    changed = len(cleaned) != original_len
+    if not changed:
+        try:
+            original_ts = pd.to_datetime(pred_df["time_stamp"], errors="coerce").reset_index(drop=True)
+            cleaned_ts = cleaned["time_stamp"].reset_index(drop=True)
+            original_pred = pd.to_numeric(pred_df["prediction"], errors="coerce").reset_index(drop=True)
+            cleaned_pred = cleaned["prediction"].reset_index(drop=True)
+            changed = (
+                not original_ts.equals(cleaned_ts)
+                or not np.allclose(
+                    original_pred.to_numpy(dtype=float),
+                    cleaned_pred.to_numpy(dtype=float),
+                    equal_nan=True,
+                )
+            )
+        except Exception:
+            changed = True
+    if changed:
+        cleaned.to_csv(out_csv, index=False)
+    return int(contiguous_count), changed
+
+
 def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = None) -> None:
+    # 阅读入口：这个函数串起配置加载、上下文构建、可选的 LLM 编排、
+    # 确定性兜底预测，以及最后的指标汇总。
     # Load environment from .env if present
     load_dotenv(override=False)
 
@@ -82,6 +207,8 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
     mode = os.getenv("ORCHESTRATION_MODE", "llm").lower()
     use_agent = mode == "llm"
 
+    # Agent 模式会构建 pydantic-ai 工具链；如果凭证或模型配置缺失，
+    # 实验会继续走确定性预测兜底路径。
     agent = build_agent_or_none(cfg, dataset_briefings) if use_agent else None
     if use_agent and agent is None:
         print("[warn] LLM orchestration unavailable or misconfigured; falling back to deterministic mode.")
@@ -106,6 +233,8 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
         predicted_window = int(ds.predicted_window)
 
         try:
+            # 第一阶段上下文：在历史窗口上评估候选预测器，并持久化 memory/case
+            # 文件，后续 Investigator 会把它们作为推理上下文。
             analysis = analyze_training(
                 train_df,
                 look_back,
@@ -240,9 +369,23 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
         resume_required = False
 
         if agent is not None:
+            # 第二/三阶段上下文：每个循环步都要求 LLM 读取 packet、输出一段预测，
+            # 并在进入评估前通过 Reflector 校验。
+            meta_path = os.path.join(ds_out_dir, "metadata.json")
+            if os.path.exists(out_csv) and os.path.exists(meta_path):
+                try:
+                    with open(meta_path, "r", encoding="utf-8") as f:
+                        existing_meta = json.load(f) or {}
+                    if existing_meta.get("chosen_model") != "LLM":
+                        os.remove(out_csv)
+                        clear_resume_state(ds_out_dir)
+                        print(
+                            f"[info] Removed non-LLM predictions for dataset '{ds.name}' before starting LLM orchestration."
+                        )
+                except Exception:
+                    pass
+
             resume_state = load_resume_state(ds_out_dir)
-            if resume_state is None and os.path.exists(out_csv):
-                os.remove(out_csv)
 
             total_len = len(target_df)
             if total_len == 0:
@@ -282,6 +425,15 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
                 # Use integer prediction budget equal to remaining target length
                 # to avoid float slicing and overshoot from overlapping windows.
                 total_needed = int(total_len)
+                file_coverage, file_cleaned = _clean_llm_predictions_for_resume(
+                    out_csv,
+                    target_df,
+                    total_needed,
+                )
+                if file_cleaned:
+                    print(
+                        f"[warn] Cleaned inconsistent LLM predictions for dataset '{ds.name}'; contiguous usable coverage is {file_coverage}/{total_needed}."
+                    )
                 current_len = 0
                 current_collected = 0
                 step_index = 0
@@ -301,32 +453,35 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
                     except Exception:
                         pass
 
-                if resume_state_valid:
-                    stored_total_needed = resume_state.get("total_needed")
-                    if stored_total_needed is not None:
-                        try:
-                            total_needed = int(stored_total_needed)
-                        except Exception:
-                            total_needed = int(total_len)
-                    current_len = int(resume_state.get("current_len", 0))
-                    step_index = int(resume_state.get("step_index", 0))
-                    current_collected = int(resume_state.get("current_collected", 0))
-                    if os.path.exists(out_csv):
-                        try:
-                            _existing = pd.read_csv(out_csv)
-                            if "time_stamp" in _existing.columns and len(_existing) > 0:
-                                _existing["time_stamp"] = pd.to_datetime(_existing["time_stamp"])
-                                existing_unique = (
-                                    _existing.sort_values("time_stamp", kind="mergesort")
-                                    .drop_duplicates(subset=["time_stamp"], keep="last")
-                                )
-                                unique_len = len(existing_unique)
-                            else:
-                                unique_len = len(_existing)
-                            current_collected = min(unique_len, current_collected or unique_len)
-                        except Exception:
-                            pass
-                    current_collected = min(current_collected, total_needed)
+                if resume_state_valid and file_coverage <= 0:
+                    stored_collected = int(resume_state.get("current_collected", 0))
+                    if stored_collected > 0:
+                        print(
+                            f"[warn] Ignoring stored resume state for dataset '{ds.name}' because no contiguous LLM predictions are present on disk."
+                        )
+                    resume_state_valid = False
+                    clear_resume_state(ds_out_dir)
+
+                if resume_state_valid or file_coverage > 0:
+                    if resume_state_valid:
+                        stored_total_needed = resume_state.get("total_needed")
+                        if stored_total_needed is not None:
+                            try:
+                                total_needed = int(stored_total_needed)
+                            except Exception:
+                                total_needed = int(total_len)
+                        stored_collected = int(resume_state.get("current_collected", 0))
+                        if file_coverage != stored_collected:
+                            print(
+                                f"[warn] Resume state for dataset '{ds.name}' reported {stored_collected}/{total_needed}, but predictions.csv has {file_coverage} contiguous usable LLM predictions; using predictions.csv."
+                            )
+                    current_collected = min(file_coverage, total_needed)
+                    current_len, step_index = _resume_position_from_coverage(
+                        current_collected,
+                        horizon,
+                        stride,
+                        total_needed,
+                    )
                     print(
                         f"[info] Resuming LLM orchestration for dataset '{ds.name}' from step {step_index} with {current_collected}/{total_needed} predictions already collected."
                     )
@@ -395,6 +550,7 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
                         except Exception as exc:
                             if _is_network_error(exc) and net_failures < max_net_failures:
                                 net_failures += 1
+                                _append_llm_failure(ds_out_dir, window_offset, step_index, "network_retry", exc)
                                 print(
                                     f"[warn] Network error during LLM call for dataset '{ds.name}' step {step_index} (attempt {net_failures}/{max_net_failures}). Retrying..."
                                 )
@@ -402,6 +558,7 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
                                 continue
                             if not _is_network_error(exc) and other_failures < max_other_failures:
                                 other_failures += 1
+                                _append_llm_failure(ds_out_dir, window_offset, step_index, "llm_retry", exc)
                                 print(
                                     f"[warn] LLM call failed for dataset '{ds.name}' step {step_index} (attempt {other_failures}/{max_other_failures}): {exc}. Retrying..."
                                 )
@@ -410,6 +567,7 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
                             print(
                                 f"[warn] LLM orchestration failed for dataset '{ds.name}' step {step_index}: {exc}. Saving progress for resume."
                             )
+                            _append_llm_failure(ds_out_dir, window_offset, step_index, "llm_failed", exc)
                             llm_failed = True
                             resume_required = True
                             break
@@ -420,6 +578,30 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
                     if not os.path.exists(out_csv):
                         print(
                             f"[warn] LLM did not emit predictions for dataset '{ds.name}' (step {step_index})."
+                        )
+                        _append_llm_failure(
+                            ds_out_dir,
+                            window_offset,
+                            step_index,
+                            "missing_predictions_file",
+                            RuntimeError("LLM run completed without creating predictions.csv"),
+                        )
+                        llm_failed = True
+                        resume_required = True
+                        break
+
+                    new_collected, file_cleaned = _clean_llm_predictions_for_resume(
+                        out_csv,
+                        target_df,
+                        total_needed,
+                    )
+                    if file_cleaned:
+                        print(
+                            f"[warn] Cleaned inconsistent LLM predictions for dataset '{ds.name}' after step {step_index}; contiguous usable coverage is {new_collected}/{total_needed}."
+                        )
+                    if not os.path.exists(out_csv):
+                        print(
+                            f"[warn] LLM output for dataset '{ds.name}' did not contain a contiguous prediction prefix after step {step_index}."
                         )
                         llm_failed = True
                         resume_required = True
@@ -469,7 +651,6 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
                     with open(os.path.join(ds_out_dir, "basemodel_results.json"), "w", encoding="utf-8") as f:
                         json.dump(basemodel_results, f, indent=2)
 
-                    new_collected = unique_count
                     added = new_collected - current_collected
                     if added <= 0:
                         print(

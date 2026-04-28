@@ -13,3 +13,4 @@ tsfeatures>=0.4.5
 reformer_pytorch>=1.4.4
 torch>=2.5.1
 pyclustering>=0.10.1
+transformers>=4.40

@@ -21,6 +21,7 @@ from alphacast.agents.runtime import (
     load_resume_state,
     save_resume_state,
 )
+from alphacast.agents.langgraph_runtime import build_langgraph_or_none
 from alphacast.eval import align_predictions, mae, mse, smape
 from alphacast.tools.analysis import analyze_training
 from alphacast.features import extract_target_features, extract_exogenous_features
@@ -162,10 +163,7 @@ def _clean_llm_predictions_for_resume(
 
 
 def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = None) -> None:
-    # 阅读入口：这个函数串起配置加载、上下文构建、可选的 LLM 编排、
-    # 确定性兜底预测，以及最后的指标汇总。
-    # Load environment from .env if present
-    load_dotenv(override=False)
+    load_dotenv(override=True)
 
     cfg = load_config(config_path)
     os.makedirs(cfg.output_dir, exist_ok=True)
@@ -206,11 +204,22 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
 
     mode = os.getenv("ORCHESTRATION_MODE", "llm").lower()
     use_agent = mode == "llm"
+    orchestration_backend = os.getenv("ORCHESTRATION_BACKEND", "langgraph").lower()
 
-    # Agent 模式会构建 pydantic-ai 工具链；如果凭证或模型配置缺失，
-    # 实验会继续走确定性预测兜底路径。
-    agent = build_agent_or_none(cfg, dataset_briefings) if use_agent else None
-    if use_agent and agent is None:
+    # Agent 模式优先使用 LangGraph 显式状态机；迁移期保留 pydantic-ai
+    # 旧编排器作为依赖缺失或显式指定时的回退路径。
+    langgraph_orchestrator = (
+        build_langgraph_or_none(cfg, dataset_briefings)
+        if use_agent and orchestration_backend in {"langgraph", "graph"}
+        else None
+    )
+    if use_agent and orchestration_backend in {"langgraph", "graph"} and langgraph_orchestrator is None:
+        print("[warn] LangGraph orchestration unavailable or misconfigured; trying legacy Pydantic AI orchestration.")
+
+    agent = None
+    if use_agent and langgraph_orchestrator is None:
+        agent = build_agent_or_none(cfg, dataset_briefings)
+    if use_agent and langgraph_orchestrator is None and agent is None:
         print("[warn] LLM orchestration unavailable or misconfigured; falling back to deterministic mode.")
 
     rows = []
@@ -367,6 +376,32 @@ def run_experiment(config_path: str, dataset_selectors: Optional[List[str]] = No
         out_csv = os.path.join(ds_out_dir, "predictions.csv")
         agent_success = False
         resume_required = False
+
+        if langgraph_orchestrator is not None:
+            # LangGraph 路径把 consult/generate/reflect/persist 拆成显式节点，
+            # 不再依赖模型按 prompt 顺序调用工具。
+            graph_result = langgraph_orchestrator.run_dataset(
+                ds=ds,
+                test_df=test_df,
+                target_df=target_df,
+                frequency=frequency,
+            )
+            if graph_result.status == "success" and graph_result.metrics is not None:
+                rows.append(graph_result.metrics)
+                agent_success = True
+            elif graph_result.resume_required:
+                resume_required = True
+            elif graph_result.status not in {"unavailable"}:
+                print(
+                    f"[warn] LangGraph orchestration failed for dataset '{ds.name}': {graph_result.error}. "
+                    "Using deterministic fallback."
+                )
+
+        if agent_success:
+            continue
+
+        if langgraph_orchestrator is not None and resume_required:
+            continue
 
         if agent is not None:
             # 第二/三阶段上下文：每个循环步都要求 LLM 读取 packet、输出一段预测，

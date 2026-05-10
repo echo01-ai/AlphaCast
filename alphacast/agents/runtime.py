@@ -61,9 +61,7 @@ def build_agent_or_none(
     cfg: ExperimentConfig | None = None,
     dataset_briefings: Optional[Dict[str, str]] = None,
 ):
-    # 阅读提示：这里是 pydantic-ai 的组装点。模型配置可用时返回
-    # GeneratorAgent，否则 run_experiment.py 会回退到确定性预测。
-    load_dotenv(override=False)
+    load_dotenv(override=True)
 
     model_name = os.getenv("PYA_MODEL")
     if not model_name:

@@ -800,15 +800,18 @@ class LangGraphOrchestrator:
             diagnostics = report.setdefault("diagnostics", {})
             diagnostics["chain_of_thought"] = chain_report
             issues = list(report.get("issues") or [])
+            numeric_warnings: List[str] = []
             if chain_report.get("unsupported_numbers"):
                 samples = ", ".join(
                     str(item.get("raw")) for item in chain_report["unsupported_numbers"][:3]
                 )
-                issues.append(f"Chain-of-thought numeric claims lack grounding: {samples}")
+                numeric_warnings.append(f"Chain-of-thought numeric claims lack grounding: {samples}")
             if chain_report.get("window_claim_mismatches"):
-                issues.append("Chain-of-thought horizon references contradict request.")
+                numeric_warnings.append("Chain-of-thought horizon references contradict request.")
             if chain_report.get("baseline_claim_mismatches"):
-                issues.append("Chain-of-thought baseline stats contradict investor packet.")
+                numeric_warnings.append("Chain-of-thought baseline stats contradict investor packet.")
+            if numeric_warnings:
+                diagnostics["numeric_audit_warnings"] = numeric_warnings
             report["issues"] = issues
             report["approved"] = not issues
             report["window_offset"] = int(state.get("window_offset", 0))

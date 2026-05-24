@@ -1800,9 +1800,6 @@ class SundialModel:
         return pred_tokens.detach().cpu().numpy()
     
 def get_default_models() -> List[ForecastModel]:
-    # 阅读提示：这个注册表定义训练分析和基线生成使用的候选模型池。
-    # 当前默认只保留无需本地 checkpoint 的轻量统计模型，避免在未准备
-    # Autoformer/DLinear/PatchTST/TimesNet/iTransformer/Sundial 权重时反复失败。
     return [
         SeasonalNaiveModel(),
         HistoricAverageModel(),

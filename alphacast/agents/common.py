@@ -58,8 +58,6 @@ def prepare_investor_packet(
 ) -> dict:
     """Generate the InvestigatorAgent research packet for a dataset window."""
 
-    # 阅读提示：这里是已保存实验产物到 LLM 的主桥梁。它会把 memory、案例检索、
-    # 基线预测、目标特征、外生变量切片和数据集说明整理成一个结构化 packet。
     dataset_name = ds_cfg.name
     ds_out_dir = os.path.join(cfg.output_dir, dataset_name) if cfg else os.path.join("outputs", dataset_name)
 

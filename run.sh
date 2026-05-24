@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODE="${1:-baseline}"
 DATASET="${2:-ETTh1}"
-CONFIG="${CONFIG:-config_deepseek.yaml}"
+CONFIG="${CONFIG:-config.yaml}"
 CUDA_DEVICES="${CUDA_VISIBLE_DEVICES:-0,4}"
 MPL_DIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 

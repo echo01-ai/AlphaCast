@@ -39,8 +39,6 @@ def create_generator_agent(
     reflector_agent: Agent,
     deterministic_run_for_dataset: Callable[[ExperimentConfig, Any], dict],
 ) -> Agent:
-    # 阅读提示：GeneratorAgent 是面向 LLM 的编排器。它暴露的工具刻意保持窄协议：
-    # 读取上下文、记录证据、输出预测，然后交给 Reflector 批准或拒绝。
     instructions = get_agent_instructions("GeneratorAgent", GENERATOR_AGENT_PROMPT_FALLBACK)
     generator_agent = Agent(model_name, instructions=instructions, retries=3)
     globals()["RunContext"] = RunContext

@@ -340,8 +340,6 @@ def create_reflector_agent(
     assess_forecast: Callable[[List[float], int, Dict[str, Any], str], Dict[str, Any]],
     json_default: Callable[[Any], Any],
 ) -> Agent:
-    # 阅读提示：ReflectorAgent 是确定性的 FunctionModel。它检查契约层面的有效性
-    # 和数值依据，而不是再让第二个 LLM 做自由形式判断。
     instructions = get_agent_instructions("ReflectorAgent", REFLECTOR_AGENT_PROMPT_FALLBACK)
 
     def _extract_json_request(messages: list[Any]) -> dict[str, Any]:

@@ -105,10 +105,10 @@ def plot_predictions(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot prediction CSV against actual test values.")
-    parser.add_argument("--test-csv", default="data/raw/ETTh1/test.csv")
-    parser.add_argument("--pred-csv", default="outputs_deepseek/ETTh1/predictions.csv")
-    parser.add_argument("--dataset", default="ETTh1")
-    parser.add_argument("--output", default="outputs_deepseek/ETTh1/predictions_vs_actual.png")
+    parser.add_argument("--test-csv", default="data/raw/EPF_NP/test.csv")
+    parser.add_argument("--pred-csv", default="outputs/EPF_NP/predictions.csv")
+    parser.add_argument("--dataset", default="EPF_NP")
+    parser.add_argument("--output", default="outputs/EPF_NP/predictions_vs_actual.png")
     parser.add_argument("--start", type=int, default=None, help="Optional aligned-row start index.")
     parser.add_argument("--end", type=int, default=None, help="Optional aligned-row end index.")
     args = parser.parse_args()

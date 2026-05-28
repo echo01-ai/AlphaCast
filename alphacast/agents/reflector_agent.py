@@ -25,7 +25,13 @@ _NUMBER_PATTERN = re.compile(
     r"(?P<number>-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?)(?P<percent>%?)"
 )
 _WINDOW_CLAIM_PATTERN = re.compile(
-    r"\b(?:window|horizon|steps?|points?)\b[^\d\-]{0,12}(-?\d+(?:\.\d+)?)",
+    r"\bhorizon\b[^\d\-]{0,12}(-?\d+(?:\.\d+)?)"
+    r"|"
+    r"\b(?:prediction|forecast|output)\s+(?:window|steps?|points?)\b[^\d\-]{0,12}(-?\d+(?:\.\d+)?)"
+    r"|"
+    r"\b(?:predict|forecast|generat(?:e|ing))\s+(-?\d+(?:\.\d+)?)\s*\b(?:steps?|points?)\b"
+    r"|"
+    r"\b(?:window|steps?|points?)\s+(?:of|is)[^\d\-]{0,8}(-?\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 _BASELINE_CLAIM_PATTERN = re.compile(
@@ -255,8 +261,11 @@ def scan_chain_of_thought(
 
     window_mismatches: List[Dict[str, Any]] = []
     for match in _WINDOW_CLAIM_PATTERN.finditer(text):
+        raw_claimed = next((g for g in match.groups() if g is not None), None)
+        if raw_claimed is None:
+            continue
         try:
-            claimed = float(match.group(1))
+            claimed = float(raw_claimed)
         except (TypeError, ValueError):
             continue
         if abs(claimed - predicted_window) > 0.5:

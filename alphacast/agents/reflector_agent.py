@@ -25,11 +25,17 @@ _NUMBER_PATTERN = re.compile(
     r"(?P<number>-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?)(?P<percent>%?)"
 )
 _WINDOW_CLAIM_PATTERN = re.compile(
-    r"\b(?:window|horizon|steps?|points?)\b[^\d\-]{0,12}(-?\d+(?:\.\d+)?)",
+    r"\bhorizon\b[^\d\-]{0,12}(-?\d+(?:\.\d+)?)"
+    r"|"
+    r"\b(?:prediction|forecast|output)\s+(?:window|steps?|points?)\b[^\d\-]{0,12}(-?\d+(?:\.\d+)?)"
+    r"|"
+    r"\b(?:predict|forecast|generat(?:e|ing))\s+(-?\d+(?:\.\d+)?)\s*\b(?:steps?|points?)\b"
+    r"|"
+    r"\b(?:window|steps?|points?)\s+(?:of|is)[^\d\-]{0,8}(-?\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 _BASELINE_CLAIM_PATTERN = re.compile(
-    r"\b(?:baseline|reference)\b[^\n]{0,32}\b(?:mean|avg|average|last|final|value|level)\b[^\d\-]{0,16}(-?\d+(?:\.\d+)?)",
+    r"\b(?:baseline|reference)\b[^\d\-]{0,16}(-?\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 
@@ -149,14 +155,6 @@ def _looks_like_date_fragment(text: str, start: int, end: int) -> bool:
     date_slice = text[start : min(len(text), start + 10)]
     if re.match(r"\d{4}-\d{2}-\d{2}", date_slice):
         return True
-    nearby = text[max(0, start - 12) : min(len(text), end + 12)].lower()
-    if re.search(
-        r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|"
-        r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
-        r"mon|tue|wed|thu|fri|sat|sun)\b",
-        nearby,
-    ):
-        return True
     return False
 
 
@@ -263,9 +261,14 @@ def scan_chain_of_thought(
 
     window_mismatches: List[Dict[str, Any]] = []
     for match in _WINDOW_CLAIM_PATTERN.finditer(text):
+        raw_claimed = next((g for g in match.groups() if g is not None), None)
+        if raw_claimed is None:
+            continue
         try:
-            claimed = float(match.group(1))
+            claimed = float(raw_claimed)
         except (TypeError, ValueError):
+            continue
+        if claimed > 365 or claimed < 1:  # skip year/date values and implausible horizons
             continue
         if abs(claimed - predicted_window) > 0.5:
             snippet = text[max(0, match.start() - 40) : min(len(text), match.end() + 40)].strip()
@@ -355,8 +358,6 @@ def create_reflector_agent(
         return {}
 
     def _reflector_model(messages, agent_info) -> ModelResponse:
-        # Generator 会发送 JSON payload；Reflector 返回严格 JSON，
-        # 这样 emit_predictions 可以拒绝无效或缺少依据的预测。
         payload = _extract_json_request(messages)
         raw_predictions = payload.get("predictions") or []
         predictions: List[float] = []
@@ -418,7 +419,9 @@ def create_reflector_agent(
             )
 
         if detected_issues:
-            diagnostics["numeric_audit_warnings"] = detected_issues
+            issues = report.setdefault("issues", [])
+            issues.extend(detected_issues)
+            report["approved"] = False
 
         summary_note = analysis.get("summary")
         if summary_note:

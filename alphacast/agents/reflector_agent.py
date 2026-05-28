@@ -35,7 +35,9 @@ _WINDOW_CLAIM_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _BASELINE_CLAIM_PATTERN = re.compile(
-    r"\b(?:baseline|reference)\b[^\d\-]{0,16}(-?\d+(?:\.\d+)?)",
+    r"\b(?:baseline)\b[^\d\-]{0,16}(-?\d+(?:\.\d+)?)"
+    r"|"
+    r"\breference\s+(?:(?:mean|avg|value|level|last|final)\b)[^\d\-]{0,12}(-?\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 
@@ -243,6 +245,9 @@ def scan_chain_of_thought(
         if token["is_percent"]:
             continue
         value = float(token["value"])
+        # Skip year-like integers (1900-2099) — common in time-series reasoning
+        if value == int(value) and 1900 <= int(value) <= 2099:
+            continue
         if abs(value) <= max(0.05 * context_magnitude, 1.0) and context_magnitude > 10:
             # Allow small housekeeping numbers when the context scale is large.
             continue
@@ -294,9 +299,12 @@ def scan_chain_of_thought(
 
     if baseline_stats:
         for match in _BASELINE_CLAIM_PATTERN.finditer(text):
+            raw_claimed = next((g for g in match.groups() if g is not None), None)
+            if raw_claimed is None:
+                continue
             snippet = text[max(0, match.start() - 40) : min(len(text), match.end() + 40)].strip()
             try:
-                claimed = float(match.group(1))
+                claimed = float(raw_claimed)
             except (TypeError, ValueError):
                 continue
             reference_type = "mean"
